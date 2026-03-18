@@ -3,10 +3,12 @@ import {
   Connection,
   PublicKey,
   Transaction,
+  ComputeBudgetProgram,
 } from '@solana/web3.js'
 import {
   createTransferCheckedInstruction,
   getAssociatedTokenAddress,
+  createAssociatedTokenAccountIdempotentInstruction,
 } from '@solana/spl-token'
 import * as Methods from '../Methods.js'
 import { clusterUrls, type SolanaNetwork } from '../constants.js'
@@ -18,11 +20,13 @@ export namespace charge {
     wallet: WalletLike | (() => WalletLike | Promise<WalletLike>)
     network?: SolanaNetwork
     connection?: Connection
+    /** Priority fee in microlamports per compute unit (default: 1000) */
+    priorityFee?: number
   }
 }
 
 export function charge(parameters: charge.Parameters) {
-  const { network = 'mainnet-beta' } = parameters
+  const { network = 'mainnet-beta', priorityFee = 1000 } = parameters
 
   const connection =
     parameters.connection ?? new Connection(clusterUrls[network], 'confirmed')
@@ -51,6 +55,23 @@ export function charge(parameters: charge.Parameters) {
       const amountRaw = parseAmount(amount, decimals)
 
       const tx = new Transaction()
+
+      // Add priority fee for congestion resilience
+      tx.add(
+        ComputeBudgetProgram.setComputeUnitPrice({
+          microLamports: priorityFee,
+        }),
+      )
+
+      // Ensure sender ATA exists (idempotent — no-op if already created)
+      tx.add(
+        createAssociatedTokenAccountIdempotentInstruction(
+          wallet.publicKey,
+          senderAta,
+          wallet.publicKey,
+          mint,
+        ),
+      )
 
       const transferIx = createTransferCheckedInstruction(
         senderAta,

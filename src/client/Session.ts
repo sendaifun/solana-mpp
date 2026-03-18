@@ -3,10 +3,12 @@ import {
   Connection,
   PublicKey,
   Transaction,
+  ComputeBudgetProgram,
 } from '@solana/web3.js'
 import {
   createTransferCheckedInstruction,
   getAssociatedTokenAddress,
+  createAssociatedTokenAccountIdempotentInstruction,
 } from '@solana/spl-token'
 import * as Methods from '../Methods.js'
 import { clusterUrls, type SolanaNetwork } from '../constants.js'
@@ -23,11 +25,13 @@ export namespace session {
     wallet: WalletLike | (() => WalletLike | Promise<WalletLike>)
     network?: SolanaNetwork
     connection?: Connection
+    /** Priority fee in microlamports per compute unit (default: 1000) */
+    priorityFee?: number
   }
 }
 
 export function session(parameters: session.Parameters) {
-  const { network = 'mainnet-beta' } = parameters
+  const { network = 'mainnet-beta', priorityFee = 1000 } = parameters
 
   const connection =
     parameters.connection ?? new Connection(clusterUrls[network], 'confirmed')
@@ -69,6 +73,7 @@ export function session(parameters: session.Parameters) {
           wallet,
           methodDetails,
           challenge.request.amount,
+          priorityFee,
         )
         const payload = {
           action: 'topUp' as const,
@@ -98,6 +103,7 @@ export function session(parameters: session.Parameters) {
         wallet,
         methodDetails,
         depositAmount,
+        priorityFee,
       )
 
       const payload = {
@@ -160,6 +166,7 @@ async function sendTransfer(
   wallet: WalletLike,
   methodDetails: { recipient: string; mint: string; decimals: number; reference: string },
   amount: string,
+  priorityFee: number,
 ): Promise<string> {
   const recipientAta = new PublicKey(methodDetails.recipient)
   const mint = new PublicKey(methodDetails.mint)
@@ -168,6 +175,25 @@ async function sendTransfer(
 
   const senderAta = await getAssociatedTokenAddress(mint, wallet.publicKey)
   const amountRaw = parseAmount(amount, decimals)
+
+  const tx = new Transaction()
+
+  // Add priority fee for congestion resilience
+  tx.add(
+    ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: priorityFee,
+    }),
+  )
+
+  // Ensure sender ATA exists (idempotent — no-op if already created)
+  tx.add(
+    createAssociatedTokenAccountIdempotentInstruction(
+      wallet.publicKey,
+      senderAta,
+      wallet.publicKey,
+      mint,
+    ),
+  )
 
   const transferIx = createTransferCheckedInstruction(
     senderAta,
@@ -184,7 +210,7 @@ async function sendTransfer(
     isWritable: false,
   })
 
-  const tx = new Transaction().add(transferIx)
+  tx.add(transferIx)
 
   const latestBlockhash = await connection.getLatestBlockhash('confirmed')
   tx.recentBlockhash = latestBlockhash.blockhash
