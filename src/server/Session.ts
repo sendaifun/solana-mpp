@@ -54,6 +54,25 @@ export function session(parameters: session.Parameters) {
   const connection =
     parameters.connection ?? new Connection(clusterUrls[network], 'confirmed')
 
+  // Per-session mutex to prevent race conditions on balance updates
+  const sessionLocks = new Map<string, Promise<void>>()
+
+  async function withSessionLock<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
+    const existing = sessionLocks.get(sessionId) ?? Promise.resolve()
+    let resolve: () => void
+    const next = new Promise<void>((r) => { resolve = r })
+    sessionLocks.set(sessionId, next)
+    try {
+      await existing
+      return await fn()
+    } finally {
+      resolve!()
+      if (sessionLocks.get(sessionId) === next) {
+        sessionLocks.delete(sessionId)
+      }
+    }
+  }
+
   const method = Method.toServer(Methods.session, {
     defaults: {
       currency: mint.toBase58(),
@@ -125,49 +144,61 @@ export function session(parameters: session.Parameters) {
   ): Promise<ReturnType<typeof Receipt.from>> {
     const { depositSignature, refundAddress } = payload
 
-    const reference = new PublicKey(methodDetails.reference)
-    const expectedRecipient = new PublicKey(methodDetails.recipient)
-    const expectedMint = new PublicKey(methodDetails.mint)
+    // Use the deposit signature as a lock key to prevent concurrent replays
+    return withSessionLock(`deposit:${depositSignature}`, async () => {
+      // Replay protection: ensure this deposit signature hasn't been used before
+      const consumedKey = `solana-session:consumed:${depositSignature}`
+      if (await store.get(consumedKey)) {
+        throw new Error('Deposit signature already consumed')
+      }
 
-    const depositAmountStr = request.depositAmount ?? request.amount
-    const expectedAmount = parseAmount(depositAmountStr, methodDetails.decimals)
+      const reference = new PublicKey(methodDetails.reference)
+      const expectedRecipient = new PublicKey(methodDetails.recipient)
+      const expectedMint = new PublicKey(methodDetails.mint)
 
-    await findAndVerifyTransfer(
-      connection,
-      {
-        reference,
-        expectedRecipient,
-        expectedMint,
-        expectedAmount,
-        clientSignature: depositSignature,
-      },
-      verifyTimeout,
-    )
+      const depositAmountStr = request.depositAmount ?? request.amount
+      const expectedAmount = parseAmount(depositAmountStr, methodDetails.decimals)
 
-    const bearerHash = bytesToHex(sha256(new TextEncoder().encode(depositSignature)))
-    const sessionId = crypto.randomUUID()
+      await findAndVerifyTransfer(
+        connection,
+        {
+          reference,
+          expectedRecipient,
+          expectedMint,
+          expectedAmount,
+          clientSignature: depositSignature,
+        },
+        verifyTimeout,
+      )
 
-    // Deduct the first request's cost from the deposit
-    const chargeAmount = parseAmount(request.amount, methodDetails.decimals)
+      // Mark deposit as consumed after successful verification
+      await store.put(consumedKey, true)
 
-    const state: SessionState = {
-      sessionId,
-      bearerHash,
-      depositAmount: expectedAmount,
-      spent: chargeAmount,
-      refundAddress,
-      mint: methodDetails.mint,
-      decimals: methodDetails.decimals,
-      status: 'active',
-    }
+      const bearerHash = bytesToHex(sha256(new TextEncoder().encode(depositSignature)))
+      const sessionId = crypto.randomUUID()
 
-    await store.put(`solana-session:${sessionId}`, serializeState(state))
+      // Deduct the first request's cost from the deposit
+      const chargeAmount = parseAmount(request.amount, methodDetails.decimals)
 
-    return Receipt.from({
-      method: 'solana',
-      reference: sessionId,
-      status: 'success',
-      timestamp: new Date().toISOString(),
+      const state: SessionState = {
+        sessionId,
+        bearerHash,
+        depositAmount: expectedAmount,
+        spent: chargeAmount,
+        refundAddress,
+        mint: methodDetails.mint,
+        decimals: methodDetails.decimals,
+        status: 'active',
+      }
+
+      await store.put(`solana-session:${sessionId}`, serializeState(state))
+
+      return Receipt.from({
+        method: 'solana',
+        reference: sessionId,
+        status: 'success',
+        timestamp: new Date().toISOString(),
+      })
     })
   }
 
@@ -175,22 +206,24 @@ export function session(parameters: session.Parameters) {
     payload: { sessionId: string; bearer: string },
     request: { amount: string; methodDetails: { decimals: number } },
   ): Promise<ReturnType<typeof Receipt.from>> {
-    const state = await loadSession(payload.sessionId)
-    verifyBearer(state, payload.bearer)
+    return withSessionLock(payload.sessionId, async () => {
+      const state = await loadSession(payload.sessionId)
+      verifyBearer(state, payload.bearer)
 
-    const chargeAmount = parseAmount(request.amount, request.methodDetails.decimals)
-    const remaining = state.depositAmount - state.spent
-    if (chargeAmount > remaining) {
-      throw new Error(`Insufficient session balance: ${remaining} < ${chargeAmount}`)
-    }
-    state.spent += chargeAmount
-    await store.put(`solana-session:${state.sessionId}`, serializeState(state))
+      const chargeAmount = parseAmount(request.amount, request.methodDetails.decimals)
+      const remaining = state.depositAmount - state.spent
+      if (chargeAmount > remaining) {
+        throw new Error(`Insufficient session balance: ${remaining} < ${chargeAmount}`)
+      }
+      state.spent += chargeAmount
+      await store.put(`solana-session:${state.sessionId}`, serializeState(state))
 
-    return Receipt.from({
-      method: 'solana',
-      reference: state.sessionId,
-      status: 'success',
-      timestamp: new Date().toISOString(),
+      return Receipt.from({
+        method: 'solana',
+        reference: state.sessionId,
+        status: 'success',
+        timestamp: new Date().toISOString(),
+      })
     })
   }
 
@@ -198,50 +231,75 @@ export function session(parameters: session.Parameters) {
     payload: { sessionId: string; topUpSignature: string },
     methodDetails: { recipient: string; mint: string; decimals: number; reference: string },
   ): Promise<ReturnType<typeof Receipt.from>> {
-    const state = await loadSession(payload.sessionId)
+    return withSessionLock(payload.sessionId, async () => {
+      // Replay protection inside lock to prevent concurrent duplicate top-ups
+      const consumedKey = `solana-session:topup-consumed:${payload.topUpSignature}`
+      if (await store.get(consumedKey)) {
+        throw new Error('Top-up signature already consumed')
+      }
 
-    const reference = new PublicKey(methodDetails.reference)
-    const expectedRecipient = new PublicKey(methodDetails.recipient)
-    const expectedMint = new PublicKey(methodDetails.mint)
+      const state = await loadSession(payload.sessionId)
 
-    const tx = await connection.getParsedTransaction(payload.topUpSignature, {
-      commitment: 'confirmed',
-      maxSupportedTransactionVersion: 0,
-    })
-    if (!tx) throw new Error('Top-up transaction not found')
+      const reference = new PublicKey(methodDetails.reference)
+      const expectedRecipient = new PublicKey(methodDetails.recipient)
+      const expectedMint = new PublicKey(methodDetails.mint)
 
-    const topUpAmount = computeTransferDelta(tx, expectedRecipient.toBase58(), expectedMint.toBase58())
+      // Verify the top-up transaction on-chain with reference key check
+      const tx = await connection.getParsedTransaction(payload.topUpSignature, {
+        commitment: 'confirmed',
+        maxSupportedTransactionVersion: 0,
+      })
+      if (!tx) throw new Error('Top-up transaction not found')
+      if (tx.meta?.err) throw new Error(`Top-up transaction failed: ${JSON.stringify(tx.meta.err)}`)
 
-    state.depositAmount += topUpAmount
-    await store.put(`solana-session:${state.sessionId}`, serializeState(state))
+      // Verify reference key is present in the transaction
+      const accountKeys = tx.transaction.message.accountKeys
+      const hasReference = accountKeys.some((key) => key.pubkey.equals(reference))
+      if (!hasReference) {
+        throw new Error(`Reference key ${reference.toBase58()} not found in top-up transaction`)
+      }
 
-    return Receipt.from({
-      method: 'solana',
-      reference: state.sessionId,
-      status: 'success',
-      timestamp: new Date().toISOString(),
+      const topUpAmount = computeTransferDelta(tx, expectedRecipient.toBase58(), expectedMint.toBase58())
+      if (topUpAmount <= BigInt(0)) {
+        throw new Error('Top-up transaction has no positive transfer to recipient')
+      }
+
+      // Mark top-up as consumed after successful verification
+      await store.put(consumedKey, true)
+
+      state.depositAmount += topUpAmount
+      await store.put(`solana-session:${state.sessionId}`, serializeState(state))
+
+      return Receipt.from({
+        method: 'solana',
+        reference: state.sessionId,
+        status: 'success',
+        timestamp: new Date().toISOString(),
+      })
     })
   }
 
   async function handleClose(
     payload: { sessionId: string; bearer: string },
   ): Promise<ReturnType<typeof Receipt.from>> {
-    const state = await loadSession(payload.sessionId)
-    verifyBearer(state, payload.bearer)
+    return withSessionLock(payload.sessionId, async () => {
+      const state = await loadSession(payload.sessionId)
+      verifyBearer(state, payload.bearer)
 
-    const refundAmount = state.depositAmount - state.spent
-    if (refundAmount > BigInt(0)) {
-      await sendRefund(state, refundAmount)
-    }
+      const refundAmount = state.depositAmount - state.spent
+      if (refundAmount > BigInt(0)) {
+        await sendRefund(state, refundAmount)
+      }
 
-    state.status = 'closed'
-    await store.put(`solana-session:${state.sessionId}`, serializeState(state))
+      state.status = 'closed'
+      await store.put(`solana-session:${state.sessionId}`, serializeState(state))
 
-    return Receipt.from({
-      method: 'solana',
-      reference: state.sessionId,
-      status: 'success',
-      timestamp: new Date().toISOString(),
+      return Receipt.from({
+        method: 'solana',
+        reference: state.sessionId,
+        status: 'success',
+        timestamp: new Date().toISOString(),
+      })
     })
   }
 
@@ -286,16 +344,18 @@ export function session(parameters: session.Parameters) {
   }
 
   async function deduct(sessionId: string, amount: bigint): Promise<void> {
-    const state = await loadSession(sessionId)
-    if (state.status !== 'active') {
-      throw new Error(`Session ${sessionId} is ${state.status}`)
-    }
-    const remaining = state.depositAmount - state.spent
-    if (amount > remaining) {
-      throw new Error(`Insufficient balance: ${remaining} < ${amount}`)
-    }
-    state.spent += amount
-    await store.put(`solana-session:${sessionId}`, serializeState(state))
+    return withSessionLock(sessionId, async () => {
+      const state = await loadSession(sessionId)
+      if (state.status !== 'active') {
+        throw new Error(`Session ${sessionId} is ${state.status}`)
+      }
+      const remaining = state.depositAmount - state.spent
+      if (amount > remaining) {
+        throw new Error(`Insufficient balance: ${remaining} < ${amount}`)
+      }
+      state.spent += amount
+      await store.put(`solana-session:${sessionId}`, serializeState(state))
+    })
   }
 
   async function waitForTopUp(
