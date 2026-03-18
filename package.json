@@ -1,0 +1,32 @@
+{
+  "name": "solana-mpp",
+  "version": "0.1.0",
+  "description": "Solana MPP SDK",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/sendaifun/solana-mpp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sendaifun/solana-mpp/issues"
+  },
+  "homepage": "https://github.com/sendaifun/solana-mpp#readme",
+  "keywords": [
+    "solana"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.9.3"
+  }
+}
