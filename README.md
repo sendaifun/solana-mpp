@@ -2,19 +2,32 @@
   <img src="smpp-banger.png" alt="Solana MPP" width="600" />
 </p>
 
-# Solana Payment Integration for MPP
+<h1 align="center">Solana Payment Integration for MPP</h1>
 
-## Overview
+<p align="center">
+  <strong>SPL token payments for the <a href="https://www.mppx.dev/">Machine Payments Protocol</a></strong><br/>
+  High-throughput, low-cost token transfers meet HTTP <code>402 Payment Required</code>
+</p>
 
-The `solana-mpp` package enables **SPL token payments** within the [Machine Payments Protocol](https://www.mppx.dev/) (MPP) framework. It brings Solana's high-throughput, low-cost token transfers to MPP's HTTP `402 Payment Required` standard — letting any API accept SPL tokens as payment with a few lines of code.
+<p align="center">
+  <a href="https://www.npmjs.com/package/solana-mpp"><img src="https://img.shields.io/npm/v/solana-mpp?style=flat-square&color=CB3837" alt="npm" /></a>
+  <a href="https://github.com/anthropics/solana-mpp/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-ISC-blue?style=flat-square" alt="license" /></a>
+  <a href="https://solana.com"><img src="https://img.shields.io/badge/chain-Solana-9945FF?style=flat-square&logo=solana&logoColor=white" alt="Solana" /></a>
+</p>
+
+---
 
 ## Why Solana for Machine Payments?
 
-- **Speed**: ~400ms block times with instant finality — payments settle before the HTTP request times out
-- **Cost**: Transaction fees average $0.00025 — viable even for micropayments
-- **Token Flexibility**: Pay with any SPL token (USDC, USDT, custom tokens) — not locked to a single currency
-- **Ecosystem**: Access to Solana's deep DeFi liquidity and wallet infrastructure
-- **Programmability**: On-chain verification via reference keys eliminates the need for external payment processors
+| | Feature | Detail |
+|---|---|---|
+| **~400ms** | **Speed** | Block times with instant finality — payments settle before the HTTP request times out |
+| **$0.00025** | **Cost** | Average transaction fee — viable even for micropayments |
+| **Any SPL** | **Token Flexibility** | Pay with USDC, USDT, or custom tokens — not locked to a single currency |
+| **DeFi** | **Ecosystem** | Access to Solana's deep liquidity and wallet infrastructure |
+| **On-chain** | **Programmability** | Verification via reference keys eliminates external payment processors |
+
+---
 
 ## How Payment Works
 
@@ -46,6 +59,8 @@ Client                              Server
 
 All verification happens on-chain. The server reads the transaction from Solana and confirms the token transfer — no external payment processor, no webhooks, no polling third-party APIs.
 
+---
+
 ## Payment Intents
 
 ### Charge (One-Time Payment)
@@ -72,13 +87,17 @@ A client deposits tokens upfront and makes multiple requests against the balance
 3. **Top-up** — Client can add more tokens if balance runs low
 4. **Close** — Client ends session, server refunds remaining balance on-chain
 
+---
+
 ## Installation
 
 ```bash
 npm install solana-mpp mppx @solana/web3.js @solana/spl-token
 ```
 
-`@solana/web3.js` and `@solana/spl-token` are peer dependencies — you likely already have them if you're building on Solana.
+> `@solana/web3.js` and `@solana/spl-token` are peer dependencies — you likely already have them if you're building on Solana.
+
+---
 
 ## Quick Start
 
@@ -143,6 +162,8 @@ const data = await response.json()
 ```
 
 That's it. The client automatically intercepts `402` responses, signs and submits the SPL token transfer, and retries the request with the payment proof.
+
+---
 
 ## Server API
 
@@ -224,9 +245,13 @@ await sessionMethod.waitForTopUp(sessionId, 30_000) // timeout in ms
 import { Mppx, Store, Expires } from 'solana-mpp/server'
 ```
 
-- `Mppx` — Server-side MPP handler (from `mppx/server`)
-- `Store` — Pluggable storage interface (`Store.memory()` for dev, bring your own for production)
-- `Expires` — TTL helper for store entries
+| Export | Description |
+|---|---|
+| `Mppx` | Server-side MPP handler (from `mppx/server`) |
+| `Store` | Pluggable storage interface (`Store.memory()` for dev, bring your own for production) |
+| `Expires` | TTL helper for store entries |
+
+---
 
 ## Client API
 
@@ -280,7 +305,8 @@ interface WalletLike {
 }
 ```
 
-**From a Keypair:**
+<details>
+<summary><strong>From a Keypair</strong></summary>
 
 ```typescript
 import { Keypair, Transaction, VersionedTransaction } from '@solana/web3.js'
@@ -298,13 +324,19 @@ const wallet: WalletLike = {
 }
 ```
 
+</details>
+
 ### Client Exports
 
 ```typescript
 import { Mppx } from 'solana-mpp/client'
 ```
 
-- `Mppx` — Client-side payment handler with `fetch()` that auto-handles 402 flows
+| Export | Description |
+|---|---|
+| `Mppx` | Client-side payment handler with `fetch()` that auto-handles 402 flows |
+
+---
 
 ## Full Examples
 
@@ -312,7 +344,8 @@ import { Mppx } from 'solana-mpp/client'
 
 A payment-gated joke API with a browser frontend.
 
-**Server:**
+<details>
+<summary><strong>Server</strong></summary>
 
 ```typescript
 import { Mppx, Store } from 'solana-mpp/server'
@@ -355,7 +388,10 @@ if (url.pathname === '/api/joke') {
 }
 ```
 
-**Client:**
+</details>
+
+<details>
+<summary><strong>Client</strong></summary>
 
 ```typescript
 import { Mppx } from 'solana-mpp/client'
@@ -377,11 +413,14 @@ const { joke } = await response.json()
 console.log(joke)
 ```
 
+</details>
+
 ### Example 2: Metered Data API (Session)
 
 A session-gated API where clients deposit once and fetch multiple pages.
 
-**Server:**
+<details>
+<summary><strong>Server</strong></summary>
 
 ```typescript
 import { Mppx, Store } from 'solana-mpp/server'
@@ -420,7 +459,10 @@ if (url.pathname === '/api/data') {
 }
 ```
 
-**Client:**
+</details>
+
+<details>
+<summary><strong>Client</strong></summary>
 
 ```typescript
 import { Mppx } from 'solana-mpp/client'
@@ -454,6 +496,10 @@ const res3 = await mppx.fetch('http://localhost:5173/api/data?page=3')
 sessionMethod.close()
 await mppx.fetch('http://localhost:5173/api/data?page=close')
 ```
+
+</details>
+
+---
 
 ## Running the Examples
 
@@ -491,14 +537,16 @@ npm run client       # Run CLI client (terminal 2)
 
 The client deposits 0.1 tokens, fetches 5 pages at 0.01 tokens each, closes the session, and prints a summary showing the refunded balance.
 
+---
+
 ## Networks
 
-| Network        | RPC Endpoint                          | Use Case         |
-|----------------|---------------------------------------|------------------|
-| `mainnet-beta` | `https://api.mainnet-beta.solana.com` | Production       |
-| `devnet`       | `https://api.devnet.solana.com`       | Testing          |
-| `testnet`      | `https://api.testnet.solana.com`      | Testing          |
-| `localnet`     | `http://localhost:8899`               | Local development|
+| Network | RPC Endpoint | Use Case |
+|---|---|---|
+| `mainnet-beta` | `https://api.mainnet-beta.solana.com` | Production |
+| `devnet` | `https://api.devnet.solana.com` | Testing |
+| `testnet` | `https://api.testnet.solana.com` | Testing |
+| `localnet` | `http://localhost:8899` | Local development |
 
 Pass a custom `Connection` for private RPC endpoints:
 
@@ -512,6 +560,8 @@ solana.charge({
   connection,
 })
 ```
+
+---
 
 ## Architecture
 
@@ -536,6 +586,8 @@ solana-mpp
     └── session/              # CLI-based session lifecycle demo
 ```
 
+---
+
 ## How Verification Works
 
 Payment verification is fully on-chain with no external dependencies:
@@ -553,10 +605,14 @@ Payment verification is fully on-chain with no external dependencies:
 
 4. **Replay Protection** — Transaction signatures are stored and checked to prevent double-spending the same payment.
 
+---
+
 ## Standards
 
 This implementation follows the [MPP specification](https://www.mppx.dev/) for HTTP `402 Payment Required` payment flows, extending it with Solana SPL token transfers as the payment rail. It is compatible with any server framework that uses Web-standard `Request`/`Response` objects (Node.js, Bun, Deno, Cloudflare Workers, Next.js, etc).
 
-## License
+---
 
-ISC
+<p align="center">
+  <sub>ISC License</sub>
+</p>
