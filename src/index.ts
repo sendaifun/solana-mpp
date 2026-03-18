@@ -8,3 +8,4 @@ export * as client from './client/index.js'
 // Types
 export type { WalletLike, SolanaNetwork } from './types.js'
 export { clusterUrls } from './constants.js'
+export { parseAmount } from './utils.js'

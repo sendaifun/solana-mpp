@@ -10,6 +10,7 @@ import {
 } from '@solana/spl-token'
 import * as Methods from '../Methods.js'
 import { clusterUrls, type SolanaNetwork } from '../constants.js'
+import { parseAmount } from '../utils.js'
 import type { WalletLike } from '../types.js'
 
 interface ActiveSession {
@@ -202,10 +203,3 @@ async function sendTransfer(
   return signature
 }
 
-function parseAmount(amount: string, decimals: number): bigint {
-  const parts = amount.split('.')
-  const whole = parts[0] ?? '0'
-  let frac = parts[1] ?? ''
-  frac = frac.padEnd(decimals, '0').slice(0, decimals)
-  return BigInt(whole + frac)
-}
