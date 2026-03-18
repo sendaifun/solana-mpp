@@ -19,6 +19,31 @@ export interface VerifyTransferResult {
 
 const POLL_INTERVAL_MS = 1_000
 const DEFAULT_TIMEOUT_MS = 60_000
+const MAX_RPC_RETRIES = 3
+const RPC_RETRY_DELAY_MS = 1_000
+
+function isTransientError(error: Error): boolean {
+  return (
+    error.message.includes('503') ||
+    error.message.includes('429') ||
+    error.message.includes('ETIMEDOUT') ||
+    error.message.includes('ECONNRESET') ||
+    error.message.includes('fetch failed')
+  )
+}
+
+async function withRetry<T>(fn: () => Promise<T>, retries = MAX_RPC_RETRIES): Promise<T> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn()
+    } catch (error) {
+      const isLastAttempt = attempt === retries
+      if (isLastAttempt || !(error instanceof Error) || !isTransientError(error)) throw error
+      await sleep(RPC_RETRY_DELAY_MS * (attempt + 1))
+    }
+  }
+  throw new Error('Unreachable')
+}
 
 export async function findAndVerifyTransfer(
   connection: Connection,
@@ -29,10 +54,12 @@ export async function findAndVerifyTransfer(
 
   const signature = clientSignature ?? await pollForSignature(connection, reference, timeoutMs)
 
-  const tx = await connection.getParsedTransaction(signature, {
-    commitment: 'confirmed',
-    maxSupportedTransactionVersion: 0,
-  })
+  const tx = await withRetry(() =>
+    connection.getParsedTransaction(signature, {
+      commitment: 'confirmed',
+      maxSupportedTransactionVersion: 0,
+    }),
+  )
 
   if (!tx) {
     throw new Error(`Transaction not found: ${signature}`)
@@ -55,12 +82,26 @@ async function pollForSignature(
 ): Promise<string> {
   const deadline = Date.now() + timeoutMs
 
+  let lastError: Error | undefined
   while (Date.now() < deadline) {
-    const signatures = await connection.getSignaturesForAddress(reference, { limit: 1 }, 'confirmed')
-    if (signatures.length > 0) {
-      return signatures[0].signature
+    try {
+      const signatures = await connection.getSignaturesForAddress(reference, { limit: 1 }, 'confirmed')
+      if (signatures.length > 0) {
+        return signatures[0].signature
+      }
+      lastError = undefined
+    } catch (error) {
+      if (error instanceof Error && isTransientError(error)) {
+        lastError = error
+      } else {
+        throw error
+      }
     }
     await sleep(POLL_INTERVAL_MS)
+  }
+
+  if (lastError) {
+    throw new Error(`Timed out polling for transaction (last error: ${lastError.message})`)
   }
 
   throw new Error(`Timed out waiting for transaction referencing ${reference.toBase58()}`)
