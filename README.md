@@ -5,13 +5,13 @@
 <h1 align="center">Solana Payment Integration for MPP</h1>
 
 <p align="center">
-  <strong>SPL token payments for the <a href="https://www.mppx.dev/">Machine Payments Protocol</a></strong><br/>
+  <strong>SPL token payments for the <a href="https://mpp.dev/">Machine Payments Protocol</a></strong><br/>
   High-throughput, low-cost token transfers meet HTTP <code>402 Payment Required</code>
 </p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/solana-mpp"><img src="https://img.shields.io/npm/v/solana-mpp?style=flat-square&color=CB3837" alt="npm" /></a>
-  <a href="https://github.com/anthropics/solana-mpp/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-ISC-blue?style=flat-square" alt="license" /></a>
+  <a href="https://github.com/sendaifun/solana-mpp/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-ISC-blue?style=flat-square" alt="license" /></a>
   <a href="https://solana.com"><img src="https://img.shields.io/badge/chain-Solana-9945FF?style=flat-square&logo=solana&logoColor=white" alt="Solana" /></a>
 </p>
 
@@ -609,7 +609,7 @@ Payment verification is fully on-chain with no external dependencies:
 
 ## Standards
 
-This implementation follows the [MPP specification](https://www.mppx.dev/) for HTTP `402 Payment Required` payment flows, extending it with Solana SPL token transfers as the payment rail. It is compatible with any server framework that uses Web-standard `Request`/`Response` objects (Node.js, Bun, Deno, Cloudflare Workers, Next.js, etc).
+This implementation follows the [MPP specification](https://mpp.dev/) for HTTP `402 Payment Required` payment flows, extending it with Solana SPL token transfers as the payment rail. It is compatible with any server framework that uses Web-standard `Request`/`Response` objects (Node.js, Bun, Deno, Cloudflare Workers, Next.js, etc).
 
 ---
 
