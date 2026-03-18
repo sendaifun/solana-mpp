@@ -1,14 +1,29 @@
 {
   "name": "solana-mpp",
   "version": "0.1.0",
-  "description": "Solana MPP SDK",
+  "description": "Solana MPP SDK — SPL token payments over HTTP 402",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "default": "./dist/server/index.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
+    }
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "dev": "tsc --watch",
     "prepublishOnly": "npm run build"
   },
@@ -21,12 +36,28 @@
   },
   "homepage": "https://github.com/sendaifun/solana-mpp#readme",
   "keywords": [
-    "solana"
+    "solana",
+    "mpp",
+    "payments",
+    "402",
+    "spl-token"
   ],
   "author": "",
   "license": "ISC",
+  "dependencies": {
+    "@noble/hashes": "^2.0.1",
+    "bs58": "^6.0.0"
+  },
+  "peerDependencies": {
+    "@solana/spl-token": "^0.4.0",
+    "@solana/web3.js": "^1.95.0",
+    "mppx": "^0.3.15"
+  },
   "devDependencies": {
+    "@solana/spl-token": "^0.4.0",
+    "@solana/web3.js": "^1.95.0",
     "@types/node": "^25.5.0",
+    "mppx": "^0.3.15",
     "typescript": "^5.9.3"
   }
 }

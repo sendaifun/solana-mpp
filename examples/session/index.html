@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solana MPP &mdash; Session Server</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Session Server</h1>
+  <p>This is the server for the session example.</p>
+  <p>Run <code>npm run client</code> in a separate terminal to start the client.</p>
+  <p>Server endpoints:</p>
+  <ul>
+    <li><code>GET /api/health</code> &mdash; free health check</li>
+    <li><code>GET /api/faucet?address=...</code> &mdash; fund a wallet with test tokens</li>
+    <li><code>GET /api/data?page=N</code> &mdash; paid data endpoint (session)</li>
+  </ul>
+</body>
+</html>
