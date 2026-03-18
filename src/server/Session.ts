@@ -24,7 +24,7 @@ interface SessionState {
   refundAddress: string
   mint: string
   decimals: number
-  status: 'active' | 'closed'
+  status: 'active' | 'closing' | 'closed'
 }
 
 export namespace session {
@@ -286,6 +286,10 @@ export function session(parameters: session.Parameters) {
       const state = await loadSession(payload.sessionId)
       verifyBearer(state, payload.bearer)
 
+      // Mark as closing before sending refund to prevent double-refund on retry
+      state.status = 'closing'
+      await store.put(`solana-session:${state.sessionId}`, serializeState(state))
+
       const refundAmount = state.depositAmount - state.spent
       if (refundAmount > BigInt(0)) {
         await sendRefund(state, refundAmount)
@@ -309,8 +313,8 @@ export function session(parameters: session.Parameters) {
     return deserializeState(raw)
   }
 
-  function verifyBearer(state: SessionState, bearer: string): void {
-    if (state.status !== 'active') {
+  function verifyBearer(state: SessionState, bearer: string, allowClosing = false): void {
+    if (state.status === 'closed' || (!allowClosing && state.status === 'closing')) {
       throw new Error(`Session ${state.sessionId} is ${state.status}`)
     }
     const hash = bytesToHex(sha256(new TextEncoder().encode(bearer)))
@@ -340,7 +344,12 @@ export function session(parameters: session.Parameters) {
     tx.feePayer = serverKeypair.publicKey
     tx.sign(serverKeypair)
 
-    await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false })
+    const signature = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false })
+
+    await connection.confirmTransaction(
+      { signature, ...latestBlockhash },
+      'confirmed',
+    )
   }
 
   async function deduct(sessionId: string, amount: bigint): Promise<void> {
@@ -424,7 +433,7 @@ interface SerializedSessionState {
   refundAddress: string
   mint: string
   decimals: number
-  status: 'active' | 'closed'
+  status: 'active' | 'closing' | 'closed'
 }
 
 function serializeState(state: SessionState): SerializedSessionState {

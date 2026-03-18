@@ -30,7 +30,24 @@ export function charge(parameters: charge.Parameters) {
   const connection =
     parameters.connection ?? new Connection(clusterUrls[network], 'confirmed')
 
-  const pendingReferences = new Map<string, Keypair>()
+  // Per-signature mutex to prevent concurrent duplicate verification
+  const signatureLocks = new Map<string, Promise<void>>()
+
+  async function withSignatureLock<T>(sig: string, fn: () => Promise<T>): Promise<T> {
+    const existing = signatureLocks.get(sig) ?? Promise.resolve()
+    let resolve: () => void
+    const next = new Promise<void>((r) => { resolve = r })
+    signatureLocks.set(sig, next)
+    try {
+      await existing
+      return await fn()
+    } finally {
+      resolve!()
+      if (signatureLocks.get(sig) === next) {
+        signatureLocks.delete(sig)
+      }
+    }
+  }
 
   return Method.toServer(Methods.charge, {
     defaults: {
@@ -52,8 +69,6 @@ export function charge(parameters: charge.Parameters) {
       const referenceKeypair = Keypair.generate()
       const referenceKey = referenceKeypair.publicKey.toBase58()
 
-      pendingReferences.set(referenceKey, referenceKeypair)
-
       const recipientAta = await getAssociatedTokenAddress(mint, recipient)
 
       return {
@@ -74,40 +89,46 @@ export function charge(parameters: charge.Parameters) {
 
       const referenceKey = methodDetails.reference
 
-      if (store) {
-        const consumedKey = `solana-charge:consumed:${signature}`
-        if (await store.get(consumedKey)) {
-          throw new Error('Transaction signature already consumed')
+      return withSignatureLock(signature, async () => {
+        // Replay check inside lock to prevent concurrent duplicates
+        if (store) {
+          const consumedKey = `solana-charge:consumed:${signature}`
+          if (await store.get(consumedKey)) {
+            throw new Error('Transaction signature already consumed')
+          }
         }
-        await store.put(consumedKey, true)
-      }
 
-      const reference = new PublicKey(referenceKey)
-      const expectedRecipient = new PublicKey(methodDetails.recipient)
-      const expectedMint = new PublicKey(methodDetails.mint)
+        const reference = new PublicKey(referenceKey)
+        const expectedRecipient = new PublicKey(methodDetails.recipient)
+        const expectedMint = new PublicKey(methodDetails.mint)
 
-      const amount = credential.challenge.request.amount
-      const expectedAmount = parseAmount(amount, methodDetails.decimals)
+        const amount = credential.challenge.request.amount
+        const expectedAmount = parseAmount(amount, methodDetails.decimals)
 
-      await findAndVerifyTransfer(
-        connection,
-        {
-          reference,
-          expectedRecipient,
-          expectedMint,
-          expectedAmount,
-          clientSignature: signature,
-        },
-        verifyTimeout,
-      )
+        await findAndVerifyTransfer(
+          connection,
+          {
+            reference,
+            expectedRecipient,
+            expectedMint,
+            expectedAmount,
+            clientSignature: signature,
+          },
+          verifyTimeout,
+        )
 
-      pendingReferences.delete(referenceKey)
+        // Mark consumed only after successful on-chain verification
+        if (store) {
+          const consumedKey = `solana-charge:consumed:${signature}`
+          await store.put(consumedKey, true)
+        }
 
-      return Receipt.from({
-        method: 'solana',
-        reference: signature,
-        status: 'success',
-        timestamp: new Date().toISOString(),
+        return Receipt.from({
+          method: 'solana',
+          reference: signature,
+          status: 'success',
+          timestamp: new Date().toISOString(),
+        })
       })
     },
   })
