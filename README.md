@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="smpp-banger.png" alt="Solana MPP" width="600" />
+</p>
+
 # Solana Payment Integration for MPP
 
 ## Overview
