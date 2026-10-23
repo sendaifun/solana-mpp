@@ -57,7 +57,7 @@ export async function findAndVerifyTransfer(
   const tx = await withRetry(() =>
     connection.getParsedTransaction(signature, {
       commitment: 'confirmed',
-      maxSupportedTransactionVersion: 0,
+      maxSupportedTransactionVersion: 1,
     }),
   )
 

@@ -248,7 +248,7 @@ export function session(parameters: session.Parameters) {
       // Verify the top-up transaction on-chain with reference key check
       const tx = await connection.getParsedTransaction(payload.topUpSignature, {
         commitment: 'confirmed',
-        maxSupportedTransactionVersion: 0,
+        maxSupportedTransactionVersion: 1,
       })
       if (!tx) throw new Error('Top-up transaction not found')
       if (tx.meta?.err) throw new Error(`Top-up transaction failed: ${JSON.stringify(tx.meta.err)}`)
